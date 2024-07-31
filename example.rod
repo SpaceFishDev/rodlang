@@ -1,0 +1,10 @@
+def main args[]
+{
+    ptr8 str = "Hello, World!\n"
+    print str
+    i32 x = 40
+    if x == 50
+    {
+        print "It's 50"
+    }
+}

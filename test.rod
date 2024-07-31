@@ -1,0 +1,24 @@
+def main args[] -> i32
+{
+    ptr8 src = readln
+    ptr8 mem = 1000[]
+    i32 i = 0
+    while deref src {
+        if deref src == '+' {
+            mem[i] += 1
+        }
+        elif deref src == '-' {
+            mem[i] -= 1
+        }
+        elif deref src == '>' {
+            i += 1
+        }
+        elif deref src == '<' {
+            i -= 1
+        }
+        elif deref src == '.' {
+            print_char mem[i] 
+        }
+        src += 1
+    }
+}

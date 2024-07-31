@@ -1,0 +1,3 @@
+program = function*
+function = 'def' keyword var_name* '->' keyword block
+block = '{' expr* '}'
