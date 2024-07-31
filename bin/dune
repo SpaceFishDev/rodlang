@@ -1,0 +1,4 @@
+(executable
+ (public_name rodlang)
+ (name main)
+ (libraries rodlang))
