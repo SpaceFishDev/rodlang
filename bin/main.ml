@@ -119,14 +119,15 @@ let string_of_token_list ls =
     List.iter (fun tok -> Buffer.add_string buf ((string_of_token tok)^"\n")) ls;
     Buffer.contents buf
 
-type node_type = PROG | FUNCTION | ARGS | TYPENAME | NONE
+type node_type = PROG | FUNCTION | ARGS | VARNAME | BLOCK | NONE 
 type node = {_type: node_type;  _token: token; children: node list}
 
 let string_of_node_type = function
 | PROG -> "Program"
 | FUNCTION -> "Function"
 | ARGS -> "Args"
-| TYPENAME -> "Type Name" 
+| VARNAME -> "Var Name" 
+| BLOCK -> "Block"
 | NONE -> "None"
 
 let rec string_of_node_impl n level =
@@ -156,10 +157,10 @@ let parse_type (tokens : token list) : node * int =
   | head::tail when head._type = KEYWORD ->( match tail with
     | h::t when h._type = SQROPEN ->(
         match t with
-        | h::_ when h._type = SQRCLOSE -> (init_node TYPENAME {_type = head._type; value = head.value^"[]"; col = head.col; ln = head.ln;} [],3)
+        | h::_ when h._type = SQRCLOSE -> (init_node VARNAME {_type = head._type; value = head.value^"[]"; col = head.col; ln = head.ln;} [],3)
         | _ -> failwith "Expected ']'"
     )
-      | _ -> (init_node TYPENAME head [],1)
+      | _ -> (init_node VARNAME head [],1)
   )
   | h::_ -> (init_node NONE h [],1)
   | [] -> failwith "Empty"
@@ -171,24 +172,28 @@ let rec list_offset ls off =
     match ls with 
     | _::t -> (list_offset t (off-1))
     | [] -> ls
-let rec gather_args args tokens = 
+let rec gather_args args tokens offset = 
   match tokens with
-  | [] -> args
+  | [] -> (args,offset)
   | _::_ -> let (n, off) = (parse_type tokens) in
   match n._type with 
-  | NONE ->  args
-  | _ -> gather_args (args@[n]) (list_offset tokens off)
+  | NONE ->  (args, offset)
+  | _ -> gather_args (args@[n]) (list_offset tokens off) (offset+off)
 
 let parse_args tokens =
   match tokens with 
   | [] -> failwith "Empty"
-  | h::_ -> ([init_node ARGS h (gather_args [] tokens)], 1)
+  | h::_ -> let (nodes, off) = (gather_args [] tokens 0) in
+   ([init_node ARGS h nodes], (off+1))
 
+let parse_block tokens = 
+  ((init_node BLOCK (List.hd tokens) []), 1)
   
 let parse_function tokens = 
   let name = List.hd tokens in
   let (args, offset) = parse_args (List.tl tokens) in
-  (init_node FUNCTION name (args), offset) 
+  let (block, off) = parse_block (list_offset tokens offset) in
+  (init_node FUNCTION name ((args)@[block]), off) 
 
 let parse tokens = 
   let p = init_node PROG {_type = NONE; ln = 0; col = 0; value = "Program Token"} [] in 
