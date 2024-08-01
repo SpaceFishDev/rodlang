@@ -119,7 +119,7 @@ let string_of_token_list ls =
     List.iter (fun tok -> Buffer.add_string buf ((string_of_token tok)^"\n")) ls;
     Buffer.contents buf
 
-type node_type = PROG | FUNCTION | ARGS | VARNAME | BLOCK | NONE 
+type node_type = PROG | FUNCTION | ARGS | VARNAME | BLOCK | NONE | TYPENAME | RETURN_TYPE
 type node = {_type: node_type;  _token: token; children: node list}
 
 let string_of_node_type = function
@@ -129,6 +129,8 @@ let string_of_node_type = function
 | VARNAME -> "Var Name" 
 | BLOCK -> "Block"
 | NONE -> "None"
+| TYPENAME -> "Type Name"
+| RETURN_TYPE -> "Return Type"
 
 let rec string_of_node_impl n level =
   let buf = Buffer.create 0 in 
@@ -152,10 +154,10 @@ let init_node _type _token _children =
   {_type = _type; _token = _token; children = _children}
 
 
-let parse_type (tokens : token list) : node * int =
+let parse_var (tokens : token list) : node * int =
   match tokens with
   | head::tail when head._type = KEYWORD ->( match tail with
-    | h::t when h._type = SQROPEN ->(
+  | h::t when h._type = SQROPEN ->(
         match t with
         | h::_ when h._type = SQRCLOSE -> (init_node VARNAME {_type = head._type; value = head.value^"[]"; col = head.col; ln = head.ln;} [],3)
         | _ -> failwith "Expected ']'"
@@ -175,10 +177,23 @@ let rec list_offset ls off =
 let rec gather_args args tokens offset = 
   match tokens with
   | [] -> (args,offset)
-  | _::_ -> let (n, off) = (parse_type tokens) in
+  | _::_ -> let (n, off) = (parse_var tokens) in
   match n._type with 
   | NONE ->  (args, offset)
   | _ -> gather_args (args@[n]) (list_offset tokens off) (offset+off)
+
+let parse_type (tokens : token list) : node * int =
+  match tokens with
+  | head::tail when head._type = KEYWORD ->( match tail with
+    | h::t when h._type = SQROPEN ->(
+        match t with
+        | h::_ when h._type = SQRCLOSE -> (init_node TYPENAME {_type = head._type; value = head.value^"[]"; col = head.col; ln = head.ln;} [],3)
+        | _ -> failwith "Expected ']'"
+    )
+      | _ -> (init_node TYPENAME head [],1)
+  )
+  | h::_ -> (init_node NONE h [],1)
+  | [] -> failwith "Empty"
 
 let parse_args tokens =
   match tokens with 
@@ -188,12 +203,28 @@ let parse_args tokens =
 
 let parse_block tokens = 
   ((init_node BLOCK (List.hd tokens) []), 1)
-  
+
+let parse_return tokens = 
+  match tokens with
+  | h::t when h.value = "-" -> (
+    match t with 
+    | h::tail when h.value = ">" -> 
+    (
+      match tail with 
+      | h::_ when h._type = KEYWORD -> let (n,off) = parse_type tail in 
+      (init_node RETURN_TYPE n._token [n], off) 
+      | _ -> failwith "Expected return type"
+    )
+    | _ -> failwith "Expected return type"
+  )
+  | _ -> failwith "Expected return type"
+
 let parse_function tokens = 
   let name = List.hd tokens in
   let (args, offset) = parse_args (List.tl tokens) in
-  let (block, off) = parse_block (list_offset tokens offset) in
-  (init_node FUNCTION name ((args)@[block]), off) 
+  let (return, r_off) = parse_return (list_offset tokens offset) in
+  let (block, b_off) = parse_block (list_offset tokens (offset+r_off)) in
+  (init_node FUNCTION name ((args)@[return]@[block]), offset+r_off+b_off) 
 
 let parse tokens = 
   let p = init_node PROG {_type = NONE; ln = 0; col = 0; value = "Program Token"} [] in 
