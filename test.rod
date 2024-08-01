@@ -1,4 +1,4 @@
-def main args[] -> i32
+def main argc args[] -> i32
 {
     ptr8 src = readln
     ptr8 mem = 1000[]
