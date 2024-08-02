@@ -119,7 +119,7 @@ let string_of_token_list ls =
     List.iter (fun tok -> Buffer.add_string buf ((string_of_token tok)^"\n")) ls;
     Buffer.contents buf
 
-type node_type = PROG | FUNCTION | ARGS | VARNAME | BLOCK | NONE | TYPENAME | RETURN_TYPE | BASIC_EXPR | BIN_EXPR
+type node_type = PROG | FUNCTION | ARGS | VARNAME | BLOCK | NONE | TYPENAME | RETURN_TYPE | BASIC_EXPR | BIN_EXPR | VARIABLE_DECL | ASSIGNMENT
 type node = {_type: node_type;  _token: token; children: node list}
 
 let string_of_node_type = function
@@ -133,6 +133,8 @@ let string_of_node_type = function
 | RETURN_TYPE -> "Return Type"
 | BASIC_EXPR -> "Basic Expression"
 | BIN_EXPR -> "Binary Expression"
+| VARIABLE_DECL -> "Variable declaration"
+| ASSIGNMENT -> "Assignment"
 
 let rec string_of_node_impl n level =
   let buf = Buffer.create 0 in 
@@ -192,6 +194,7 @@ let parse_type (tokens : token list) : node * int =
         | h::_ when h._type = SQRCLOSE -> (init_node TYPENAME {_type = head._type; value = head.value^"[]"; col = head.col; ln = head.ln;} [],3)
         | _ -> failwith "Expected ']'"
     )
+    | h::_ when h._type = MULTIPLY -> (init_node TYPENAME {_type = head._type; value = head.value^"*"; col = head.col; ln = head.ln} [],2)
       | _ -> (init_node TYPENAME head [],1)
   )
   | h::_ -> (init_node NONE h [],1)
@@ -221,12 +224,23 @@ and parse_primary (tokens : token list) : node * int =
   | _ ->  (left, off)
   )
 
-
-let parse_expr (tokens : token list) : node * int = 
-  match tokens with
+  
+let rec parse_expr (tokens : token list) : node * int = 
+    match tokens with
+    | h::t when h._type = KEYWORD && h.value = "var" -> let (_type, offset) = parse_type t in
+  let (v,off) = parse_var (list_offset t offset) in
+  let (assign, off2) = (parse_assignment (list_offset t (offset+off))) in
+  (init_node VARIABLE_DECL v._token [_type;assign] , off+offset+1+off2)
   | h::_ when h._type = NUM || h._type = STRING || h._type = KEYWORD -> parse_primary tokens
   | h::_ -> ((init_node NONE h []),1)
   | _ -> failwith "Expected expr or end of block"
+  
+and parse_assignment (tokens : token list) : node * int = (
+  match tokens with 
+  | h::t when h.value = "=" -> let (n,offset) = (parse_expr t) in
+  ((init_node ASSIGNMENT h [n]), offset+1) 
+  | _ -> failwith "eish" 
+)
 
 let rec accumulate_exprs tokens exprs offset = 
   match tokens with 

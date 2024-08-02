@@ -1,4 +1,4 @@
 def main argc args[] -> i32
 {
-    1*2/3
+    var i32* bruh = 2+2
 }
