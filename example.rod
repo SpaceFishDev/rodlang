@@ -2,7 +2,7 @@ def main argc args[] -> i32
 {
     var i8* src = readln
     var i8* mem = 1000[]
-    i32 i = 0
+    var i32 i = 0
     while deref src {
         if deref src == '+' {
             mem[i] += 1

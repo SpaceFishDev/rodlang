@@ -9,7 +9,7 @@ let read_file fn =
 
 let help_msg = "HELP:\ncomp [file] -> Compiles a file to a.out.\nhelp -> Prints this help message."
 
-type token_type = NUM | KEYWORD | NONE | STRING | EQ | PLUS | MINUS | DIVIDE | MULTIPLY | OPENBLOCK | GREATER | LESS | AND | CLOSEBLOCK | SQROPEN | SQRCLOSE | BRACKETOPEN | BRACKETCLOSE
+type token_type = NUM | KEYWORD | NONE | STRING | EQ | PLUS | MINUS | DIVIDE | BOOLEQ  | MULTIPLY | OPENBLOCK | GREATER | LESS | AND | CLOSEBLOCK | SQROPEN | SQRCLOSE | BRACKETOPEN | BRACKETCLOSE
 type token = {_type: token_type; ln: int; col: int; value: string}
 type lexer_data = {src: string; pos: int; line: int; col: int}
 
@@ -34,6 +34,7 @@ let string_of_token_type = function
 | GREATER -> "Greater"
 | LESS -> "Less"
 | BRACKETOPEN -> "Bracket-Open"
+| BOOLEQ -> "Bool Equals"
 | BRACKETCLOSE -> "Bracket-Close"
 
 let string_of_token t = 
@@ -79,7 +80,10 @@ let lex_single lex_dat =
     | c when c >= '0' && c <= '9' -> lex_number lex_dat ""
     | c when c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c == '_' -> lex_keyword lex_dat ""
     | '"' | '\'' -> lex_string {src = lex_dat.src; pos = lex_dat.pos + 1; line = lex_dat.line; col = lex_dat.col+1} ""
-    | '=' -> token_init EQ lex_dat.line (lex_dat.col+1) "="
+    | '=' -> if lex_dat.src.[lex_dat.pos+1] = '=' then 
+      token_init BOOLEQ lex_dat.line (lex_dat.col+1) "=="
+    else 
+      token_init EQ lex_dat.line (lex_dat.col+1) "="
     | '+' -> token_init PLUS lex_dat.line (lex_dat.col+1) "+"
     | '-' -> token_init MINUS lex_dat.line (lex_dat.col+1) "-"
     | '/' -> token_init DIVIDE lex_dat.line (lex_dat.col+1) "/"
@@ -119,7 +123,7 @@ let string_of_token_list ls =
     List.iter (fun tok -> Buffer.add_string buf ((string_of_token tok)^"\n")) ls;
     Buffer.contents buf
 
-type node_type = PROG | FUNCTION | ARGS | VARNAME | BLOCK | NONE | TYPENAME | RETURN_TYPE | BASIC_EXPR | BIN_EXPR | VARIABLE_DECL | ASSIGNMENT
+type node_type = PROG | INDEX | FUNCTION | ARGS | VARNAME | BLOCK | NONE | CALL | ELSE |  TYPENAME | RETURN_TYPE | BASIC_EXPR | DEREF | IF | BIN_EXPR | VARIABLE_DECL | ASSIGNMENT | ARR_DECL
 type node = {_type: node_type;  _token: token; children: node list}
 
 let string_of_node_type = function
@@ -133,15 +137,20 @@ let string_of_node_type = function
 | RETURN_TYPE -> "Return Type"
 | BASIC_EXPR -> "Basic Expression"
 | BIN_EXPR -> "Binary Expression"
-| VARIABLE_DECL -> "Variable declaration"
+| VARIABLE_DECL -> "Variable Declaration"
 | ASSIGNMENT -> "Assignment"
-
+| ARR_DECL -> "Array Declaration"
+| DEREF -> "Dereference"
+| IF -> "If Statement"
+| CALL -> "Function Call"
+| INDEX -> "Index"
+| ELSE -> "Else Statement"
 let rec string_of_node_impl n level =
   let buf = Buffer.create 0 in 
   
   if List.length n.children > 0 then(
     Buffer.add_string buf (indent level (Printf.sprintf "NODE: [%s]=[%s]\n" (string_of_node_type n._type) (string_of_token n._token)));
-    List.iter (fun child -> Buffer.add_string buf (string_of_node_impl child (level+1))) n.children;
+    List.iter (fun child -> Buffer.add_string buf ( string_of_node_impl child (level+1))) n.children;
   Buffer.contents buf)
 else
   indent level (Printf.sprintf "NODE: [%s]=[%s]\n" (string_of_node_type n._type) (string_of_token n._token))
@@ -149,7 +158,7 @@ else
     if x = 0 then
       temp
     else 
-      indent (x-1) "    "^temp
+      indent (x-1) "|-> "^temp
       
 let string_of_node n = 
   string_of_node_impl n 0
@@ -164,6 +173,11 @@ let parse_var (tokens : token list) : node * int =
   | h::t when h._type = SQROPEN ->(
         match t with
         | h::_ when h._type = SQRCLOSE -> (init_node VARNAME {_type = head._type; value = head.value^"[]"; col = head.col; ln = head.ln;} [],3)
+        | h::t when h._type = NUM ->  (let idx = init_node INDEX h [] in
+        match t with
+        | h::_ when h._type = SQRCLOSE -> (init_node VARNAME head [idx],4)
+        | _ -> failwith "Expected ']'" 
+        )
         | _ -> failwith "Expected ']'"
     )
       | _ -> (init_node VARNAME head [],1)
@@ -202,7 +216,9 @@ let parse_type (tokens : token list) : node * int =
 
 let parse_basic_expression (tokens : token list ) : node * int = 
   match tokens with
-  | h::_ when h._type = NUM || h._type = KEYWORD || h._type = STRING -> ((init_node BASIC_EXPR h []),1)
+  | h::_ when h._type = NUM  || h._type = STRING -> ((init_node BASIC_EXPR h []),1)
+  | h::_ when h._type = KEYWORD -> let (n,off) = parse_var tokens in
+  (init_node BASIC_EXPR n._token [n], off) 
   | h::_ -> ((init_node NONE h []),1)
   | _ -> failwith "Expected expr or end of block"
 
@@ -211,7 +227,7 @@ let rec parse_factor (tokens : token list) : node * int =(
   let (left, off) = parse_basic_expression tokens in
   let tokens = list_offset tokens off in
   match tokens with
-  | h::t when h._type = PLUS || h._type = MINUS || h._type = MULTIPLY || h._type = DIVIDE-> let (right, offset) = parse_factor t in
+  | h::t when h._type = PLUS || h._type = MINUS || h._type = MULTIPLY || h._type = DIVIDE || h._type = BOOLEQ -> let (right, offset) = parse_factor t in
   ((init_node BIN_EXPR h [left; right]), off+offset+1)
   | _ ->  (left, off)
   )
@@ -224,20 +240,53 @@ and parse_primary (tokens : token list) : node * int =
   | _ ->  (left, off)
   )
 
-  
+
 let rec parse_expr (tokens : token list) : node * int = 
-    match tokens with
-    | h::t when h._type = KEYWORD && h.value = "var" -> let (_type, offset) = parse_type t in
+  match tokens with
+  | h::_ when h.value = "}" -> (init_node NONE h [],1)
+  | h::t when h._type = KEYWORD && h.value = "var" -> let (_type, offset) = parse_type t in
   let (v,off) = parse_var (list_offset t offset) in
   let (assign, off2) = (parse_assignment (list_offset t (offset+off))) in
   (init_node VARIABLE_DECL v._token [_type;assign] , off+offset+1+off2)
   | h::t when h._type = NUM || h._type = STRING || h._type = KEYWORD ->(
+    match h.value with 
+    | "deref" ->
+      let (n,off) = parse_var t in
+      (init_node DEREF h [n], off+1)
+    | "if" -> 
+      let (n, off) = parse_primary t in
+      let (block, off2) = parse_block (list_offset t off) in
+      let (if_n, offset) = (init_node IF h [n;block], off+off2) in
+      let tl = list_offset t offset in(
+      match tl with
+      | h::t when h.value = "else" ->
+        let (block, off2) = parse_block t in
+        let else_node = (init_node ELSE h [block]) in
+        Printf.printf "NODE={%s}\n\n" (string_of_node else_node); (init_node if_n._type if_n._token (if_n.children@[else_node]),off2+offset+1)
+      | _ -> (if_n, offset)
+        ) 
+      | "call" ->
+      (
+        match t with 
+        | h::_ when h._type = KEYWORD -> parse_call t
+        | _ -> failwith "Call expected" 
+      )
+    | _ -> (
       match t with
       | h::_ when h.value = "=" -> let (v,off) = (parse_var tokens) in
         let (assign, off2) =  parse_assignment (list_offset tokens off) in
         (init_node VARNAME v._token [assign], off2+off)
+      | hd::tail when hd.value = "[" -> (
+        match tail with 
+        | head::_ when head.value = "]" -> if h._type = NUM then
+          (init_node ARR_DECL h [], 3)
+        else
+          failwith "Cant init array with non-integer token."
+        | _ -> failwith "Expected closing brace."
+      )
       | _ -> parse_primary tokens
     )
+  )
   | h::_ -> ((init_node NONE h []),1)
   | _ -> failwith "Expected expr or end of block"
   
@@ -248,7 +297,7 @@ and parse_assignment (tokens : token list) : node * int = (
   | _ -> failwith "eish" 
 )
 
-let rec accumulate_exprs tokens exprs offset = 
+and accumulate_exprs tokens exprs offset = 
   match tokens with 
   | [] -> (exprs, offset)
   | _ -> let (n,off) = parse_expr tokens in
@@ -258,16 +307,28 @@ let rec accumulate_exprs tokens exprs offset =
     | _ ->  Printf.printf "%d\n" off;  accumulate_exprs (list_offset tokens (off)) (exprs@[n]) (offset+off)
   )
 
-let parse_args tokens =
+and parse_args tokens =
   match tokens with 
   | [] -> failwith "Empty"
   | h::_ -> let (nodes, off) = (gather_args [] tokens 0) in
    ([init_node ARGS h nodes], (off+1))
 
-let parse_block tokens = 
+and parse_block tokens = 
   let (exprs, offset) = accumulate_exprs (List.tl tokens) [] 0 in
   ((init_node BLOCK (List.hd tokens) exprs), offset+1)
-
+and accumulate_call_args tokens exprs offset = 
+  match tokens with 
+  | [] -> (exprs, offset)
+  | _ -> let (n,off) = parse_expr tokens in
+  (
+    match n._type with
+    | BIN_EXPR | BASIC_EXPR | CALL -> accumulate_call_args (list_offset tokens (off)) (exprs@[n]) (offset+off)
+    | _ -> (exprs, (off+offset))
+    )
+and parse_call tokens = 
+  let name = (List.hd tokens) in
+  let (args, off) = accumulate_call_args(List.tl tokens) [] 0 in
+  (init_node CALL name args, off+1)
 let parse_return tokens = 
   match tokens with
   | h::t when h.value = "-" -> (
@@ -305,8 +366,6 @@ let compile_begin file =
   let file_dat = read_file file in
   let t = List.rev (lex_all {src = file_dat; pos = 0; line = 1; col = 0} []) in
   print_endline (read_file file); Printf.printf "%s\n" (string_of_token_list t); Printf.printf "%s\n" (string_of_node (parse t))
-
-
 
 let () =
 match List.tl (Array.to_list Sys.argv) with
