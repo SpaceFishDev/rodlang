@@ -231,7 +231,13 @@ let rec parse_expr (tokens : token list) : node * int =
   let (v,off) = parse_var (list_offset t offset) in
   let (assign, off2) = (parse_assignment (list_offset t (offset+off))) in
   (init_node VARIABLE_DECL v._token [_type;assign] , off+offset+1+off2)
-  | h::_ when h._type = NUM || h._type = STRING || h._type = KEYWORD -> parse_primary tokens
+  | h::t when h._type = NUM || h._type = STRING || h._type = KEYWORD ->(
+      match t with
+      | h::_ when h.value = "=" -> let (v,off) = (parse_var tokens) in
+        let (assign, off2) =  parse_assignment (list_offset tokens off) in
+        (init_node VARNAME v._token [assign], off2+off)
+      | _ -> parse_primary tokens
+    )
   | h::_ -> ((init_node NONE h []),1)
   | _ -> failwith "Expected expr or end of block"
   
