@@ -119,7 +119,7 @@ let string_of_token_list ls =
     List.iter (fun tok -> Buffer.add_string buf ((string_of_token tok)^"\n")) ls;
     Buffer.contents buf
 
-type node_type = PROG | FUNCTION | ARGS | VARNAME | BLOCK | NONE | TYPENAME | RETURN_TYPE
+type node_type = PROG | FUNCTION | ARGS | VARNAME | BLOCK | NONE | TYPENAME | RETURN_TYPE | BASIC_EXPR | BIN_EXPR
 type node = {_type: node_type;  _token: token; children: node list}
 
 let string_of_node_type = function
@@ -131,6 +131,8 @@ let string_of_node_type = function
 | NONE -> "None"
 | TYPENAME -> "Type Name"
 | RETURN_TYPE -> "Return Type"
+| BASIC_EXPR -> "Basic Expression"
+| BIN_EXPR -> "Binary Expression"
 
 let rec string_of_node_impl n level =
   let buf = Buffer.create 0 in 
@@ -195,6 +197,47 @@ let parse_type (tokens : token list) : node * int =
   | h::_ -> (init_node NONE h [],1)
   | [] -> failwith "Empty"
 
+let parse_basic_expression (tokens : token list ) : node * int = 
+  match tokens with
+  | h::_ when h._type = NUM || h._type = KEYWORD || h._type = STRING -> ((init_node BASIC_EXPR h []),1)
+  | h::_ -> ((init_node NONE h []),1)
+  | _ -> failwith "Expected expr or end of block"
+
+
+let rec parse_factor (tokens : token list) : node * int =( 
+  let (left, off) = parse_basic_expression tokens in
+  let tokens = list_offset tokens off in
+  match tokens with
+  | h::t when h._type = PLUS || h._type = MINUS || h._type = MULTIPLY || h._type = DIVIDE-> let (right, offset) = parse_factor t in
+  ((init_node BIN_EXPR h [left; right]), off+offset+1)
+  | _ ->  (left, off)
+  )
+and parse_primary (tokens : token list) : node * int = 
+  let (left, off) = (parse_factor tokens) in(
+  let tokens = list_offset tokens off in
+  match tokens with
+  | h::t when h._type = MULTIPLY || h._type = DIVIDE -> let (right, offset) = parse_factor t in
+  ((init_node BIN_EXPR h [left; right]), off+offset+1)
+  | _ ->  (left, off)
+  )
+
+
+let parse_expr (tokens : token list) : node * int = 
+  match tokens with
+  | h::_ when h._type = NUM || h._type = STRING || h._type = KEYWORD -> parse_primary tokens
+  | h::_ -> ((init_node NONE h []),1)
+  | _ -> failwith "Expected expr or end of block"
+
+let rec accumulate_exprs tokens exprs offset = 
+  match tokens with 
+  | [] -> (exprs, offset)
+  | _ -> let (n,off) = parse_expr tokens in
+  (
+    match n._type with
+    | NONE -> (exprs, (off+offset))
+    | _ ->  Printf.printf "%d\n" off;  accumulate_exprs (list_offset tokens (off)) (exprs@[n]) (offset+off)
+  )
+
 let parse_args tokens =
   match tokens with 
   | [] -> failwith "Empty"
@@ -202,7 +245,8 @@ let parse_args tokens =
    ([init_node ARGS h nodes], (off+1))
 
 let parse_block tokens = 
-  ((init_node BLOCK (List.hd tokens) []), 1)
+  let (exprs, offset) = accumulate_exprs (List.tl tokens) [] 0 in
+  ((init_node BLOCK (List.hd tokens) exprs), offset+1)
 
 let parse_return tokens = 
   match tokens with
@@ -212,7 +256,7 @@ let parse_return tokens =
     (
       match tail with 
       | h::_ when h._type = KEYWORD -> let (n,off) = parse_type tail in 
-      (init_node RETURN_TYPE n._token [n], off) 
+      (init_node RETURN_TYPE n._token [n], (off+2)) 
       | _ -> failwith "Expected return type"
     )
     | _ -> failwith "Expected return type"
