@@ -1,5 +1,5 @@
 def main argc args[] -> i32
 {
     var i32* bruh = 2+2
-    x = 2
+    x = 2/2*2/2
 }
