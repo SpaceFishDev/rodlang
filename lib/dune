@@ -1,2 +1,3 @@
 (library
- (name rodlang))
+ (name rodlang)
+ (modules Lexer Parser))
