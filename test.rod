@@ -1,9 +1,13 @@
-def main argc args[] -> i32
+def main argc argv[] -> i32
 {
-    if input[0] == 'Y'{
-        call print "Hello, World!"
-    }
-    else{
-        call print "hi"
+    var i32* input = call input  
+    if input != 0 {
+        if input[0] == '3'
+        {
+            call print "test"
+        }
+        else{
+            call print "test2"
+        }
     }
 }

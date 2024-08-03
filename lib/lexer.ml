@@ -1,5 +1,5 @@
 
-type token_type = NUM | KEYWORD | NONE | STRING | EQ | PLUS | MINUS | DIVIDE | BOOLEQ  | MULTIPLY | OPENBLOCK | GREATER | LESS | AND | CLOSEBLOCK | SQROPEN | SQRCLOSE | BRACKETOPEN | BRACKETCLOSE
+type token_type = NUM | KEYWORD | NONE | STRING | EQ | PLUS | BOOLNEQ | MINUS | DIVIDE | BOOLEQ  | MULTIPLY | OPENBLOCK | GREATER | LESS | AND | CLOSEBLOCK | SQROPEN | SQRCLOSE | BRACKETOPEN | BRACKETCLOSE
 type token = {_type: token_type; ln: int; col: int; value: string}
 type lexer_data = {src: string; pos: int; line: int; col: int}
 
@@ -26,6 +26,7 @@ let string_of_token_type = function
 | BRACKETOPEN -> "Bracket-Open"
 | BOOLEQ -> "Bool Equals"
 | BRACKETCLOSE -> "Bracket-Close"
+| BOOLNEQ -> "Bool Not Equal"
 
 let string_of_token t = 
   Printf.sprintf "TOKEN [ln: %d, col: %d]: [%s]=[%s]" t.ln t.col (string_of_token_type t._type) t.value
@@ -70,10 +71,14 @@ let lex_single lex_dat =
     | c when c >= '0' && c <= '9' -> lex_number lex_dat ""
     | c when c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c == '_' -> lex_keyword lex_dat ""
     | '"' | '\'' -> lex_string {src = lex_dat.src; pos = lex_dat.pos + 1; line = lex_dat.line; col = lex_dat.col+1} ""
-    | '=' -> if lex_dat.src.[lex_dat.pos+1] = '=' then 
+    | '=' -> (if lex_dat.src.[lex_dat.pos+1] = '=' then 
       token_init BOOLEQ lex_dat.line (lex_dat.col+1) "=="
     else 
-      token_init EQ lex_dat.line (lex_dat.col+1) "="
+      token_init EQ lex_dat.line (lex_dat.col+1) "=")
+    | '!' -> (if lex_dat.src.[lex_dat.pos+1] = '=' then 
+      token_init BOOLNEQ lex_dat.line (lex_dat.col+1) "!="
+    else 
+      failwith "Unexpected character")
     | '+' -> token_init PLUS lex_dat.line (lex_dat.col+1) "+"
     | '-' -> token_init MINUS lex_dat.line (lex_dat.col+1) "-"
     | '/' -> token_init DIVIDE lex_dat.line (lex_dat.col+1) "/"

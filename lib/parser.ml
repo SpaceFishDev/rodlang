@@ -104,7 +104,7 @@ let rec parse_factor (tokens : token list) : node * int =(
   let (left, off) = parse_basic_expression tokens in
   let tokens = list_offset tokens off in
   match tokens with
-  | h::t when h._type = PLUS || h._type = MINUS || h._type = MULTIPLY || h._type = DIVIDE || h._type = BOOLEQ -> let (right, offset) = parse_factor t in
+  | h::t when h._type = PLUS || h._type = MINUS || h._type = MULTIPLY || h._type = DIVIDE || h._type = BOOLEQ || h._type = BOOLNEQ -> let (right, offset) = parse_factor t in
   ((init_node BIN_EXPR h [left; right]), off+offset+1)
   | _ ->  (left, off)
   )
@@ -181,7 +181,7 @@ and accumulate_exprs tokens exprs offset =
   (
     match n._type with
     | NONE -> (exprs, (off+offset))
-    | _ ->  Printf.printf "%d\n" off;  accumulate_exprs (list_offset tokens (off)) (exprs@[n]) (offset+off)
+    | _ ->  accumulate_exprs (list_offset tokens (off)) (exprs@[n]) (offset+off)
   )
 
 and parse_args tokens =
@@ -200,12 +200,16 @@ and accumulate_call_args tokens exprs offset =
   (
     match n._type with
     | BIN_EXPR | BASIC_EXPR | CALL -> accumulate_call_args (list_offset tokens (off)) (exprs@[n]) (offset+off)
-    | _ -> (exprs, (off+offset))
+    | _ -> (exprs, (offset))
     )
 and parse_call tokens = 
   let name = (List.hd tokens) in
   let (args, off) = accumulate_call_args(List.tl tokens) [] 0 in
-  (init_node CALL name args, off+1)
+  if off == 0 then
+  (init_node CALL name args,1)
+  else 
+  (init_node CALL name args,off+2)
+
 let parse_return tokens = 
   match tokens with
   | h::t when h.value = "-" -> (
