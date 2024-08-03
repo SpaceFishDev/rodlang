@@ -1,6 +1,6 @@
 open Lexer
 
-type node_type = PROG | INDEX | FUNCTION | ARGS | VARNAME | BLOCK | NONE | CALL | ELSE |  TYPENAME | RETURN_TYPE | BASIC_EXPR | DEREF | IF | BIN_EXPR | VARIABLE_DECL | ASSIGNMENT | ARR_DECL
+type node_type = PROG | INDEX | FUNCTION | ARGS | VARNAME | BLOCK | NONE | CALL | ELSE |  TYPENAME | RETURN_TYPE | ELIF | BASIC_EXPR | DEREF | IF | BIN_EXPR | VARIABLE_DECL | ASSIGNMENT | ARR_DECL
 type node = {_type: node_type;  _token: token; children: node list}
 
 let string_of_node_type = function
@@ -22,6 +22,7 @@ let string_of_node_type = function
 | CALL -> "Function Call"
 | INDEX -> "Index"
 | ELSE -> "Else Statement"
+| ELIF -> "Else If Statement"
 let rec string_of_node_impl n level =
   let buf = Buffer.create 0 in 
   
@@ -136,11 +137,15 @@ let rec parse_expr (tokens : token list) : node * int =
       let (if_n, offset) = (init_node IF h [n;block], off+off2) in
       let tl = list_offset t offset in(
       match tl with
+      | h::_ when h.value = "elif" -> (
+        let (elif,off) = parse_elif tl in
+         (init_node if_n._type if_n._token (if_n.children@[elif]), offset + off)
+      )
       | h::t when h.value = "else" ->
         let (block, off2) = parse_block t in
         let else_node = (init_node ELSE h [block]) in
-        Printf.printf "NODE={%s}\n\n" (string_of_node else_node); (init_node if_n._type if_n._token (if_n.children@[else_node]),off2+offset+1)
-      | _ -> (if_n, offset)
+         (init_node if_n._type if_n._token (if_n.children@[else_node]),off2+offset+1)
+      | _ -> (if_n, offset+1)
         ) 
       | "call" ->
       (
@@ -167,6 +172,24 @@ let rec parse_expr (tokens : token list) : node * int =
   | h::_ -> ((init_node NONE h []),1)
   | _ -> failwith "Expected expr or end of block"
   
+and accumulate_elif tokens elifs offset = 
+(
+  match tokens with 
+  | h::_ when h.value = "elif" -> let (n,off) = parse_elif tokens in
+  accumulate_elif (list_offset tokens (off)) (elifs@[n]) (offset+off)
+  | _ -> (elifs, offset+1) 
+)
+and parse_elif (tokens : token list) : node * int = (
+  let toks = tokens in
+  let tokens = List.tl tokens in
+  let (expr, off) = parse_expr tokens in
+  let (block, off2) = parse_block (list_offset tokens (off)) in
+  let tail = (list_offset tokens (off+off2)) in
+  match tail with 
+  | h::_ when h.value = "elif" -> let (children, offset) = accumulate_elif tail [] 0 in
+  (init_node ELIF (List.hd toks) ([expr;block]@children), off+off2+offset+1)
+  | _ ->  (init_node ELIF (List.hd toks) [expr;block], off+off2+1)
+)
 and parse_assignment (tokens : token list) : node * int = (
   match tokens with 
   | h::t when h.value = "=" -> let (n,offset) = (parse_expr t) in
