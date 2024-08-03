@@ -1,13 +1,4 @@
-def main argc argv[] -> i32
+def main argc args[] -> i32
 {
-    if x{
-
-    }
-    elif y{
-
-    }
-    elif z {
-
-    }
-    1+1
+    mem[i] += 1
 }

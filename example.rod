@@ -1,6 +1,27 @@
 def main argc args[] -> i32
 {
-    if x {
-        
+    var i8* src = call readln
+    var i8* mem = 1000[]
+    var i32 i = 0
+    while deref src {
+        if deref src == '+' {
+            mem[i] += 1
+        }
+        elif deref src == '-' {
+            mem[i] -= 1
+        }
+        elif deref src == '>' {
+            i += 1
+        }
+        elif deref src == '<' {
+            i -= 1
+        }
+        elif deref src == '.' {
+            call print_char mem[i] 
+        }
+        elif deref src == ','{
+            call print_char mem[i]
+        }
+        src += 1
     }
 }

@@ -1,6 +1,6 @@
 open Lexer
 
-type node_type = PROG | INDEX | FUNCTION | ARGS | VARNAME | BLOCK | NONE | CALL | ELSE |  TYPENAME | RETURN_TYPE | ELIF | BASIC_EXPR | DEREF | IF | BIN_EXPR | VARIABLE_DECL | ASSIGNMENT | ARR_DECL
+type node_type = PROG | INDEX | FUNCTION | ARGS | VARNAME | BLOCK | INCRIMENTAL_ASSIGN |  NONE | CALL | WHILE | ELSE |  TYPENAME | RETURN_TYPE | ELIF | BASIC_EXPR | DEREF | IF | BIN_EXPR | VARIABLE_DECL | ASSIGNMENT | ARR_DECL
 type node = {_type: node_type;  _token: token; children: node list}
 
 let string_of_node_type = function
@@ -23,6 +23,8 @@ let string_of_node_type = function
 | INDEX -> "Index"
 | ELSE -> "Else Statement"
 | ELIF -> "Else If Statement"
+| WHILE -> "While Loop"
+| INCRIMENTAL_ASSIGN -> "Incrimental Assign"
 let rec string_of_node_impl n level =
   let buf = Buffer.create 0 in 
   
@@ -45,23 +47,7 @@ let init_node _type _token _children =
   {_type = _type; _token = _token; children = _children}
 
 
-let parse_var (tokens : token list) : node * int =
-  match tokens with
-  | head::tail when head._type = KEYWORD ->( match tail with
-  | h::t when h._type = SQROPEN ->(
-        match t with
-        | h::_ when h._type = SQRCLOSE -> (init_node VARNAME {_type = head._type; value = head.value^"[]"; col = head.col; ln = head.ln;} [],3)
-        | h::t when h._type = NUM ->  (let idx = init_node INDEX h [] in
-        match t with
-        | h::_ when h._type = SQRCLOSE -> (init_node VARNAME head [idx],4)
-        | _ -> failwith "Expected ']'" 
-        )
-        | _ -> failwith "Expected ']'"
-    )
-      | _ -> (init_node VARNAME head [],1)
-  )
-  | h::_ -> (init_node NONE h [],1)
-  | [] -> failwith "Empty"
+
 
 let rec list_offset ls off = 
   if off = 0 then
@@ -70,53 +56,10 @@ let rec list_offset ls off =
     match ls with 
     | _::t -> (list_offset t (off-1))
     | [] -> ls
-let rec gather_args args tokens offset = 
-  match tokens with
-  | [] -> (args,offset)
-  | _::_ -> let (n, off) = (parse_var tokens) in
-  match n._type with 
-  | NONE ->  (args, offset)
-  | _ -> gather_args (args@[n]) (list_offset tokens off) (offset+off)
-
-let parse_type (tokens : token list) : node * int =
-  match tokens with
-  | head::tail when head._type = KEYWORD ->( match tail with
-    | h::t when h._type = SQROPEN ->(
-        match t with
-        | h::_ when h._type = SQRCLOSE -> (init_node TYPENAME {_type = head._type; value = head.value^"[]"; col = head.col; ln = head.ln;} [],3)
-        | _ -> failwith "Expected ']'"
-    )
-    | h::_ when h._type = MULTIPLY -> (init_node TYPENAME {_type = head._type; value = head.value^"*"; col = head.col; ln = head.ln} [],2)
-      | _ -> (init_node TYPENAME head [],1)
-  )
-  | h::_ -> (init_node NONE h [],1)
-  | [] -> failwith "Empty"
-
-let parse_basic_expression (tokens : token list ) : node * int = 
-  match tokens with
-  | h::_ when h._type = NUM  || h._type = STRING -> ((init_node BASIC_EXPR h []),1)
-  | h::_ when h._type = KEYWORD -> let (n,off) = parse_var tokens in
-  (init_node BASIC_EXPR n._token [n], off) 
-  | h::_ -> ((init_node NONE h []),1)
-  | _ -> failwith "Expected expr or end of block"
 
 
-let rec parse_factor (tokens : token list) : node * int =( 
-  let (left, off) = parse_basic_expression tokens in
-  let tokens = list_offset tokens off in
-  match tokens with
-  | h::t when h._type = PLUS || h._type = MINUS || h._type = MULTIPLY || h._type = DIVIDE || h._type = BOOLEQ || h._type = BOOLNEQ -> let (right, offset) = parse_factor t in
-  ((init_node BIN_EXPR h [left; right]), off+offset+1)
-  | _ ->  (left, off)
-  )
-and parse_primary (tokens : token list) : node * int = 
-  let (left, off) = (parse_factor tokens) in(
-  let tokens = list_offset tokens off in
-  match tokens with
-  | h::t when h._type = MULTIPLY || h._type = DIVIDE -> let (right, offset) = parse_factor t in
-  ((init_node BIN_EXPR h [left; right]), off+offset+1)
-  | _ ->  (left, off)
-  )
+
+
 
 
 let rec parse_expr (tokens : token list) : node * int = 
@@ -127,10 +70,15 @@ let rec parse_expr (tokens : token list) : node * int =
   let (assign, off2) = (parse_assignment (list_offset t (offset+off))) in
   (init_node VARIABLE_DECL v._token [_type;assign] , off+offset+1+off2)
   | h::t when h._type = NUM || h._type = STRING || h._type = KEYWORD ->(
-    match h.value with 
+    if h._type = KEYWORD then 
+      match h.value with 
     | "deref" ->
       let (n,off) = parse_var t in
       (init_node DEREF h [n], off+1)
+    | "while" -> (
+      let (n, off) = parse_primary t in
+      let (block, off2) = parse_block (list_offset t off) in
+      (init_node WHILE h [n;block], off+off2))
     | "if" -> 
       let (n, off) = parse_primary t in
       let (block, off2) = parse_block (list_offset t off) in
@@ -153,8 +101,31 @@ let rec parse_expr (tokens : token list) : node * int =
         | h::_ when h._type = KEYWORD -> parse_call t
         | _ -> failwith "Call expected" 
       )
+    | _ ->(
+      match t with 
+      | h::_ when h.value = "[" ->  parse_var tokens
+      | _ ->
+       parse_primary t)
+      else 
+    match h.value with 
     | _ -> (
+        match tokens with 
+        | h::_ when h._type = KEYWORD ->  (
+          let t = tokens in
+          match t with
+          | h::_ when h.value = "+=" -> let (v,off) = (parse_var tokens) in
+            let (assign, off2) =  parse_assignment (list_offset tokens off) in
+            (init_node VARNAME v._token [assign], off2+off)
+          | h::_ when h.value = "=" -> let (v,off) = (parse_var tokens) in
+            let (assign, off2) =  parse_assignment (list_offset tokens off) in
+            (init_node VARNAME v._token [assign], off2+off)
+          | _ -> parse_primary t)
+            |_ -> (
+    let toks = t in
       match t with
+      | h::_ when h.value = "+=" -> let (v,off) = (parse_var tokens) in
+        let (assign, off2) =  parse_assignment (list_offset tokens off) in
+        (init_node VARNAME v._token [assign], off2+off)
       | h::_ when h.value = "=" -> let (v,off) = (parse_var tokens) in
         let (assign, off2) =  parse_assignment (list_offset tokens off) in
         (init_node VARNAME v._token [assign], off2+off)
@@ -164,11 +135,13 @@ let rec parse_expr (tokens : token list) : node * int =
           (init_node ARR_DECL h [], 3)
         else
           failwith "Cant init array with non-integer token."
+        | head::_ when head._type = NUM -> 
+          parse_var toks
         | _ -> failwith "Expected closing brace."
       )
       | _ -> parse_primary tokens
     )
-  )
+  ))
   | h::_ -> ((init_node NONE h []),1)
   | _ -> failwith "Expected expr or end of block"
   
@@ -232,8 +205,64 @@ and parse_call tokens =
   (init_node CALL name args,1)
   else 
   (init_node CALL name args,off+2)
+and parse_var (tokens : token list) : node * int =
+  match tokens with
+  | head::tail when head._type = KEYWORD ->( match tail with
+  | h::t when h._type = SQROPEN ->(
+        match t with
+        | h::_ when h._type = SQRCLOSE -> (init_node VARNAME {_type = head._type; value = head.value^"[]"; col = head.col; ln = head.ln;} [],3)
+        | h::t when h._type = NUM  || h._type = KEYWORD -> 
+          (
+          let idx = init_node INDEX h [] in
+          match t with
+          | h::_ when h._type = SQRCLOSE -> (init_node VARNAME head [idx],5)
+          | _::_ -> let (n, off) = (parse_expr tokens) in
+          let index = init_node INDEX idx._token [n] in
+          (init_node VARNAME head [index],off+2)
+          | _ -> failwith "Expected ']'" 
+          )
+        | _ -> failwith "Expected ']'"
+    )
+      | _ -> (init_node VARNAME head [],1)
+  )
+  | h::_ -> (init_node NONE h [],1)
+  | [] -> failwith "Empty"
 
-let parse_return tokens = 
+and gather_args args tokens offset = 
+  match tokens with
+  | [] -> (args,offset)
+  | _::_ -> let (n, off) = (parse_var tokens) in
+  match n._type with 
+  | NONE ->  (args, offset)
+  | _ -> gather_args (args@[n]) (list_offset tokens off) (offset+off)
+
+and parse_type (tokens : token list) : node * int =
+  match tokens with
+  | head::tail when head._type = KEYWORD ->( match tail with
+    | h::t when h._type = SQROPEN ->(
+        match t with
+        | h::_ when h._type = SQRCLOSE -> (init_node TYPENAME {_type = head._type; value = head.value^"[]"; col = head.col; ln = head.ln;} [],3)
+        | _ -> failwith "Expected ']'"
+    )
+    | h::_ when h._type = MULTIPLY -> (init_node TYPENAME {_type = head._type; value = head.value^"*"; col = head.col; ln = head.ln} [],2)
+      | _ -> (init_node TYPENAME head [],1)
+  )
+  | h::_ -> (init_node NONE h [],1)
+  | [] -> failwith "Empty"
+
+and   parse_basic_expression (tokens : token list ) : node * int = 
+  match tokens with
+  | h::_ when h._type = NUM  || h._type = STRING -> ((init_node BASIC_EXPR h []),1)
+  | h::t when h._type = KEYWORD ->( if h.value = "deref" then 
+    let (n,off) = parse_var t in
+      (init_node DEREF h [n], off+1)
+    else 
+      let (n,off) = parse_var tokens in
+      (init_node BASIC_EXPR n._token [n], off) 
+  )
+  | h::_ -> ((init_node NONE h []),1)
+  | _ -> failwith "Expected expr or end of block"
+and parse_return tokens = 
   match tokens with
   | h::t when h.value = "-" -> (
     match t with 
@@ -248,13 +277,28 @@ let parse_return tokens =
   )
   | _ -> failwith "Expected return type"
 
-let parse_function tokens = 
+and parse_function tokens = 
   let name = List.hd tokens in
   let (args, offset) = parse_args (List.tl tokens) in
   let (return, r_off) = parse_return (list_offset tokens offset) in
   let (block, b_off) = parse_block (list_offset tokens (offset+r_off)) in
   (init_node FUNCTION name ((args)@[return]@[block]), offset+r_off+b_off) 
-
+and parse_factor (tokens : token list) : node * int =( 
+  let (left, off) = parse_basic_expression tokens in
+  let tokens = list_offset tokens off in
+  match tokens with
+  | h::t when h._type = PLUS || h._type = MINUS || h._type = MULTIPLY || h._type = DIVIDE || h._type = BOOLEQ || h._type = BOOLNEQ -> let (right, offset) = parse_factor t in
+  ((init_node BIN_EXPR h [left; right]), off+offset+1)
+  | _ ->  (left, off)
+  )
+and parse_primary (tokens : token list) : node * int = 
+  let (left, off) = (parse_factor tokens) in(
+  let tokens = list_offset tokens off in
+  match tokens with
+  | h::t when h._type = MULTIPLY || h._type = DIVIDE -> let (right, offset) = parse_factor t in
+  ((init_node BIN_EXPR h [left; right]), off+offset+1)
+  | _ ->  (left, off)
+  )
 let parse tokens = 
   let p = init_node PROG {_type = NONE; ln = 0; col = 0; value = "Program Token"} [] in 
   let parse_next tokens = (
